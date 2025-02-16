@@ -13,6 +13,7 @@ from recommenders.utils.spark_utils import start_or_get_spark  # Spark session u
 from recommenders.datasets.spark_splitters import spark_random_split  # Split dataset
 from recommenders.evaluation.spark_evaluation import SparkRatingEvaluation  # Evaluation metrics
 
+import matplotlib.pyplot as plt
 import xgboost as xgb  # Import XGBoost
 import pandas as pd  # Pandas for handling data
 import numpy as np  # NumPy for array operations
@@ -106,7 +107,7 @@ X_train = X_train.astype(float)
 xgb_model = xgb.XGBRegressor(objective="reg:squarederror", n_estimators=100, max_depth=6)
 xgb_model.fit(X_train, y_train)
 
-print("✅ XGBoost model trained successfully!")
+print("XGBoost model trained successfully!")
 
 # Make predictions with XGBoost on test data
 test_with_factors = test.join(user_factors, on=COL_USER, how="left") \
@@ -123,13 +124,51 @@ test_pd["predicted_rating"] = xgb_model.predict(X_test)
 # Evaluate predictions using common regression metrics
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
+# Root Mean Squared Error
+# in my tests, it was 1.0428
 rmse = mean_squared_error(test_pd[COL_RATING], test_pd["predicted_rating"]) ** 0.5  # Manually compute RMSE
+# Mean Absolute Error
+# in my tests, it was 0.8155
 mae = mean_absolute_error(test_pd[COL_RATING], test_pd["predicted_rating"])
+# determination
+# 0.1410 is low
 r2 = r2_score(test_pd[COL_RATING], test_pd["predicted_rating"])
+
+mean_rating = train_pd[COL_RATING].mean()
+rmse_baseline = mean_squared_error(test_pd[COL_RATING], [mean_rating] * len(test_pd)) ** 0.5
+mae_baseline = mean_absolute_error(test_pd[COL_RATING], [mean_rating] * len(test_pd))
+
+print(f"Baseline RMSE: {rmse_baseline:.4f}")
+print(f"Baseline MAE: {mae_baseline:.4f}")
 
 print(f"XGBoost RMSE: {rmse:.4f}")
 print(f"XGBoost MAE: {mae:.4f}")
 print(f"XGBoost R^2: {r2:.4f}")
+
+print("if XGBoost RMSE is less than baseline RMSE, XBoost works better")
+if rmse < rmse_baseline:
+  print ("BETTER!")
+else:
+  print("WORSE!")
+
+print("if XGBoost MAE is less than baseline MAE, XBoost works better")
+if mae < mae_baseline:
+    print ("BETTER!")
+else:
+    print("WORSE!")
+
+
+als_predictions = als_model.transform(test)
+als_predictions_pd = als_predictions.toPandas().dropna()
+rmse_als = mean_squared_error(als_predictions_pd[COL_RATING], als_predictions_pd["prediction"]) ** 0.5
+mae_als = mean_absolute_error(als_predictions_pd[COL_RATING], als_predictions_pd["prediction"])
+
+print(f"ALS RMSE: {rmse_als:.4f}")
+print(f"ALS MAE: {mae_als:.4f}")
+
+# XGBoost RMSE: 1.0428
+# XGBoost MAE: 0.8155
+# XGBoost R^2: 0.1410
 
 # Make recommendations for a specific user
 user_id = 196  # Example User ID
@@ -156,5 +195,24 @@ top_k_recommendations = user_pd.sort_values(by="predicted_rating", ascending=Fal
 print(f"Top {TOP_K} recommendations for User {user_id}:")
 print(top_k_recommendations[[COL_ITEM, "predicted_rating"]])
 
+# Top 10 recommendations for User 196:
+#       MovieId  predicted_rating
+# 1142      143          5.630395
+# 1355      753          5.558126
+# 69        613          5.405838
+# 1127      408          5.242743
+# 1413      657          5.127522
+# 920       664          5.124371
+# 184       606          5.115937
+# 724         9          5.106362
+# 237       285          5.058637
+# 412       474          5.048326
+
 # Stop Spark session
 spark.stop()
+
+plt.scatter(test_pd[COL_RATING], test_pd["predicted_rating"], alpha=0.5)
+plt.xlabel("Actual rating")
+plt.ylabel("Predicted rating")
+plt.title("Comparing predicted and actual ratings")
+plt.show()
